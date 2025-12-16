@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "vscode-input": {
+      "command": "node",
+      "args": ["${MCP_SERVER_PATH}"],
+      "disabled": false,
+      "autoApprove": ["get_vscode_input"]
+    }
+  }
+}
