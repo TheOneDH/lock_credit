@@ -83,19 +83,51 @@ HTML_PAGE = """<!DOCTYPE html>
         .status.success { display: block; background: #2d4a3e; color: #4ec9b0; }
         .status.error { display: block; background: #4a2d2d; color: #f48771; }
         .hint { margin-top: 12px; font-size: 12px; color: #808080; }
+        .image-preview {
+            margin-bottom: 12px;
+            position: relative;
+            display: none;
+        }
+        .image-preview img {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 6px;
+            border: 1px solid #3c3c3c;
+        }
+        .image-preview .remove-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .image-preview .remove-btn:hover { background: #c42b1c; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Send to AI</h1>
-        <textarea id="content" placeholder="Enter your message..." autofocus></textarea>
+        <div id="imagePreview" class="image-preview">
+            <img id="previewImg" src="" alt="Preview">
+            <button class="remove-btn" onclick="removeImage()">×</button>
+        </div>
+        <textarea id="content" placeholder="Enter your message... (Ctrl+V to paste image)" autofocus></textarea>
         <div class="btn-group">
             <button id="submitBtn" class="btn-primary">Submit</button>
             <button id="endBtn" class="btn-secondary">End</button>
             <button id="killBtn" class="btn-danger">Kill</button>
         </div>
         <div id="status" class="status"></div>
-        <p class="hint">Press Enter to submit, Shift+Enter for new line</p>
+        <p class="hint">Enter to submit, Shift+Enter for new line, Ctrl+V to paste image</p>
     </div>
     <script>
         const textarea = document.getElementById('content');
@@ -103,6 +135,9 @@ HTML_PAGE = """<!DOCTYPE html>
         const endBtn = document.getElementById('endBtn');
         const killBtn = document.getElementById('killBtn');
         const status = document.getElementById('status');
+        const imagePreview = document.getElementById('imagePreview');
+        const previewImg = document.getElementById('previewImg');
+        let pastedImageData = null;
 
         function setButtonsDisabled(disabled) {
             submitBtn.disabled = disabled;
@@ -115,18 +150,48 @@ HTML_PAGE = """<!DOCTYPE html>
             setTimeout(() => { status.className = 'status'; }, 3000);
         }
 
+        function removeImage() {
+            pastedImageData = null;
+            imagePreview.style.display = 'none';
+            previewImg.src = '';
+        }
+
+        document.addEventListener('paste', (e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        pastedImageData = event.target.result;
+                        previewImg.src = pastedImageData;
+                        imagePreview.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                    break;
+                }
+            }
+        });
+
         async function sendMessage(content) {
             setButtonsDisabled(true);
             submitBtn.textContent = 'Sending...';
             try {
+                const payload = { content };
+                if (pastedImageData) {
+                    payload.image = pastedImageData;
+                }
                 const res = await fetch('/message', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content })
+                    body: JSON.stringify(payload)
                 });
                 if (res.ok) {
                     showStatus('Message sent!');
                     textarea.value = '';
+                    removeImage();
                 } else {
                     showStatus('Failed to send', true);
                 }
@@ -180,6 +245,11 @@ async def handle_message(request):
     try:
         data = await request.json()
         message = data.get('content', '')
+        image = data.get('image', '')
+        
+        # Combine message and image data
+        if image:
+            message = f"{message}\n\n[IMAGE]\n{image}"
         
         if waiting_resolvers:
             future = waiting_resolvers.popleft()
