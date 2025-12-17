@@ -1,0 +1,16 @@
+[project]
+name = "mcp-input-server"
+version = "1.0.0"
+description = "MCP server with web UI for user input"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "aiohttp>=3.9.0",
+]
+
+[project.scripts]
+mcp-input-server = "server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

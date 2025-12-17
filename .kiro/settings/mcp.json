@@ -1,15 +1,12 @@
 {
   "mcpServers": {
     "vscode-input": {
-      "command": "node",
       "args": [
-        "E:/Project/mcp/mcp-server/index.js"
+        "E:/Project/mcp/mcp-server/server.py"
       ],
+      "command": "E:/Project/mcp/.venv/Scripts/python.exe",
       "disabled": false,
-      "autoApprove": [
-        "get_vscode_input"
-      ],
-      "disabledTools": []
+      "env": {}
     }
   }
 }

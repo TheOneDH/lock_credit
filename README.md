@@ -1,43 +1,57 @@
-# MCP Sender
+# MCP Input Server
 
-让AI在结束对话前询问你是否还有其他需求，通过网页端发送消息给AI，让AI继续work，以此达到锁定额度的目的。
+一个带有 Web UI 的 MCP 服务器，让 AI 在完成任务后等待用户输入，实现持续对话。
 
-## 使用方法
+## 功能
 
-### 1. 克隆项目
+- `get_vscode_input` 工具 - AI 调用后等待用户输入
+- Web UI (http://localhost:9876) - 通过浏览器发送消息
+- **Submit** - 提交消息继续对话
+- **End** - 结束当前对话
+- **Kill** - 终止 MCP 服务器
+
+## 在 Windsurf 中配置
+
+### 1. 安装依赖
 
 ```bash
-git clone https://github.com/TheOneDH/lock_credit.git
-cd lock_credit
+cd E:\Project\mcp
+python -m venv .venv
+.venv\Scripts\activate
+pip install mcp aiohttp
 ```
 
-### 2. 安装依赖
+### 2. 配置 MCP
 
-```bash
-cd mcp-server && npm install && cd ..
-```
-
-### 3. 配置 Windsurf MCP
-
-编辑 `~/.codeium/windsurf/mcp_config.json`，添加：
+编辑 `C:\Users\<用户名>\.codeium\windsurf\mcp_config.json`：
 
 ```json
 {
   "mcpServers": {
     "vscode-input": {
-      "command": "node",
-      "args": ["<项目绝对路径>/mcp-server/index.js"]
+      "command": "<解释器路径>/python.exe",
+      "args": ["<项目路径>/server.py"],
+      "disabled": false,
+      "env": {}
     }
   }
 }
 ```
 
-### 4. 添加 Rules
+> 将 `<项目路径>` 替换为实际路径，如 `E:/Project/mcp`
 
-将 `templates/steering/ask-before-end.md` 的内容复制到 Windsurf 的 Rules 设置中（Settings → AI Rules）。
+### 3. 配置 AI 规则
 
-### 5. 使用
+在 Windsurf 设置中添加全局规则，让 AI 在每次回复结束时调用 `get_vscode_input`：
 
-1. 当 AI 调用 `get_vscode_input` 工具时，在浏览器打开 http://localhost:9876
-2. 在网页输入框中输入内容，点击 "Submit" 提交新需求
-3. 点击 "End" 结束对话
+```
+任务完成后，调用 get_vscode_input 工具等待用户输入。
+用户通过 http://localhost:9876 网页提交消息。
+收到 [END] 则结束对话，否则继续处理。
+```
+
+### 4. 使用
+
+1. 重启 Windsurf 使配置生效
+2. 与 AI 对话，AI 完成任务后会自动等待输入
+3. 打开 http://localhost:9876 发送后续消息

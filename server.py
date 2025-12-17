@@ -1,19 +1,19 @@
-#!/usr/bin/env node
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-    CallToolRequestSchema,
-    ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import http from 'http';
-import { URL } from 'url';
+#!/usr/bin/env python3
+"""MCP Input Server - A simple MCP server with web UI for user input."""
 
-// 存储消息队列
-let messageQueue = [];
-let waitingResolvers = [];
+import asyncio
+import json
+from collections import deque
+from aiohttp import web
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import Tool, TextContent
 
-// HTML 页面
-const htmlPage = `<!DOCTYPE html>
+# Message queue and waiting resolvers
+message_queue: deque[str] = deque()
+waiting_resolvers: deque[asyncio.Future] = deque()
+
+HTML_PAGE = """<!DOCTYPE html>
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
@@ -39,11 +39,7 @@ const htmlPage = `<!DOCTYPE html>
             padding: 24px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
-        h1 {
-            font-size: 18px;
-            margin-bottom: 16px;
-            color: #fff;
-        }
+        h1 { font-size: 18px; margin-bottom: 16px; color: #fff; }
         textarea {
             width: 100%;
             min-height: 120px;
@@ -57,14 +53,8 @@ const htmlPage = `<!DOCTYPE html>
             font-size: 14px;
             margin-bottom: 12px;
         }
-        textarea:focus {
-            outline: none;
-            border-color: #007acc;
-        }
-        .btn-group {
-            display: flex;
-            gap: 10px;
-        }
+        textarea:focus { outline: none; border-color: #007acc; }
+        .btn-group { display: flex; gap: 10px; }
         button {
             flex: 1;
             padding: 10px 20px;
@@ -75,22 +65,13 @@ const htmlPage = `<!DOCTYPE html>
             font-weight: 500;
             transition: background 0.2s;
         }
-        .btn-primary {
-            background: #007acc;
-            color: white;
-        }
+        .btn-primary { background: #007acc; color: white; }
         .btn-primary:hover { background: #005a9e; }
         .btn-primary:disabled { background: #004578; opacity: 0.6; cursor: not-allowed; }
-        .btn-secondary {
-            background: #3c3c3c;
-            color: #d4d4d4;
-        }
+        .btn-secondary { background: #3c3c3c; color: #d4d4d4; }
         .btn-secondary:hover { background: #4a4a4a; }
         .btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
-        .btn-danger {
-            background: #c42b1c;
-            color: white;
-        }
+        .btn-danger { background: #c42b1c; color: white; }
         .btn-danger:hover { background: #a32417; }
         .status {
             margin-top: 12px;
@@ -101,11 +82,7 @@ const htmlPage = `<!DOCTYPE html>
         }
         .status.success { display: block; background: #2d4a3e; color: #4ec9b0; }
         .status.error { display: block; background: #4a2d2d; color: #f48771; }
-        .hint {
-            margin-top: 12px;
-            font-size: 12px;
-            color: #808080;
-        }
+        .hint { margin-top: 12px; font-size: 12px; color: #808080; }
     </style>
 </head>
 <body>
@@ -141,7 +118,6 @@ const htmlPage = `<!DOCTYPE html>
         async function sendMessage(content) {
             setButtonsDisabled(true);
             submitBtn.textContent = 'Sending...';
-            
             try {
                 const res = await fetch('/message', {
                     method: 'POST',
@@ -157,7 +133,6 @@ const htmlPage = `<!DOCTYPE html>
             } catch (e) {
                 showStatus('Error: ' + e.message, true);
             }
-            
             setButtonsDisabled(false);
             submitBtn.textContent = 'Submit';
             endBtn.textContent = 'End';
@@ -194,119 +169,83 @@ const htmlPage = `<!DOCTYPE html>
         });
     </script>
 </body>
-</html>`;
+</html>"""
 
-// 创建 HTTP 服务器
-const httpServer = http.createServer((req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
-    if (req.method === 'OPTIONS') {
-        res.writeHead(200);
-        res.end();
-        return;
-    }
 
-    const url = new URL(req.url, 'http://localhost');
-    
-    // 首页 - 返回 HTML
-    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(htmlPage);
-        return;
-    }
+async def handle_index(request):
+    return web.Response(text=HTML_PAGE, content_type='text/html')
 
-    // Kill 服务
-    if (req.method === 'POST' && url.pathname === '/kill') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-        setTimeout(() => process.exit(0), 100);
-        return;
-    }
 
-    // 接收消息
-    if (req.method === 'POST' && url.pathname === '/message') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', () => {
-            try {
-                const data = JSON.parse(body);
-                const message = data.content;
-                
-                if (waitingResolvers.length > 0) {
-                    const resolver = waitingResolvers.shift();
-                    resolver(message);
-                } else {
-                    messageQueue.push(message);
-                }
-                
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true }));
-            } catch (e) {
-                res.writeHead(400);
-                res.end('Invalid JSON');
-            }
-        });
-        return;
-    }
-
-    res.writeHead(404);
-    res.end('Not found');
-});
-
-httpServer.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-        console.error('Port 9876 already in use');
-    } else {
-        console.error('HTTP server error:', err);
-    }
-});
-
-httpServer.listen(9876, () => {
-    console.error('Web UI: http://localhost:9876');
-});
-
-// MCP Server
-const server = new Server(
-    { name: 'vscode-input-server', version: '1.0.0' },
-    { capabilities: { tools: {} } }
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-        {
-            name: 'get_vscode_input',
-            description: 'Get the message that user submitted from VS Code input panel. Call this to receive user input from the VS Code extension.',
-            inputSchema: {
-                type: 'object',
-                properties: {},
-                required: []
-            }
-        }
-    ]
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name } = request.params;
-
-    if (name === 'get_vscode_input') {
-        if (messageQueue.length > 0) {
-            const message = messageQueue.shift();
-            return { content: [{ type: 'text', text: message }] };
-        }
+async def handle_message(request):
+    try:
+        data = await request.json()
+        message = data.get('content', '')
         
-        const message = await new Promise(resolve => waitingResolvers.push(resolve));
-        return { content: [{ type: 'text', text: message }] };
-    }
+        if waiting_resolvers:
+            future = waiting_resolvers.popleft()
+            future.set_result(message)
+        else:
+            message_queue.append(message)
+        
+        return web.json_response({'success': True})
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=400)
 
-    return { content: [{ type: 'text', text: 'Unknown tool' }] };
-});
 
-async function main() {
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error('MCP Server running...');
-}
+async def handle_kill(request):
+    asyncio.get_event_loop().call_later(0.1, lambda: exit(0))
+    return web.json_response({'success': True})
 
-main().catch(console.error);
+
+async def start_http_server():
+    app = web.Application()
+    app.router.add_get('/', handle_index)
+    app.router.add_get('/index.html', handle_index)
+    app.router.add_post('/message', handle_message)
+    app.router.add_post('/kill', handle_kill)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, 'localhost', 9876)
+    await site.start()
+    print("Web UI: http://localhost:9876", file=__import__('sys').stderr)
+
+
+# MCP Server
+server = Server("mcp-input-server")
+
+
+@server.list_tools()
+async def list_tools():
+    return [
+        Tool(
+            name="get_vscode_input",
+            description="Get the message that user submitted from the web input panel. Call this to receive user input.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        )
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict):
+    if name == "get_vscode_input":
+        if message_queue:
+            message = message_queue.popleft()
+        else:
+            future = asyncio.get_event_loop().create_future()
+            waiting_resolvers.append(future)
+            message = await future
+        
+        return [TextContent(type="text", text=message)]
+    
+    return [TextContent(type="text", text="Unknown tool")]
+
+
+async def main():
+    await start_http_server()
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, server.create_initialization_options())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
